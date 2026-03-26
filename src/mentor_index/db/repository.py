@@ -368,3 +368,157 @@ class Repository:
             for row, score in scores[:top_k]
         ]
         return SearchResult(query=query, filters=filters, hits=hits)
+
+    def load_faculty_cards(self, slugs: list[str]) -> dict[str, dict]:
+        if not slugs:
+            return {}
+        with self.session_factory() as session:
+            rows = session.scalars(select(FacultyModel).where(FacultyModel.slug.in_(slugs))).all()
+            cards: dict[str, dict] = {}
+            for faculty in rows:
+                cards[faculty.slug] = {
+                    "slug": faculty.slug,
+                    "name": faculty.name,
+                    "title": faculty.title,
+                    "school": faculty.school.name,
+                    "university": faculty.school.university.name,
+                    "homepage_url": faculty.homepage_url,
+                    "lab_url": faculty.lab_url,
+                    "research_keywords": faculty.research_keywords,
+                    "has_admissions": any(section.section_type == "admissions" for section in faculty.sections),
+                    "source_count": len(faculty.sources),
+                }
+            return cards
+
+    def load_profile_detail(self, slug: str) -> dict | None:
+        with self.session_factory() as session:
+            faculty = session.scalar(select(FacultyModel).where(FacultyModel.slug == slug))
+            if faculty is None:
+                return None
+            pages_by_url = {page.url: page for page in faculty.pages}
+            external_pages = []
+            for page in sorted(faculty.pages, key=lambda item: item.url):
+                if page.url == faculty.homepage_url:
+                    continue
+                if "person.zju.edu.cn" in page.url and page.url.startswith("https://person.zju.edu.cn"):
+                    continue
+                external_pages.append(
+                    {
+                        "url": page.url,
+                        "title": page.title,
+                        "content_type": page.content_type,
+                        "summary": page.text_content[:400],
+                        "metadata": page.metadata_json,
+                    }
+                )
+            return {
+                "slug": faculty.slug,
+                "name": faculty.name,
+                "title": faculty.title,
+                "school": faculty.school.name,
+                "university": faculty.school.university.name,
+                "homepage_url": faculty.homepage_url,
+                "lab_url": faculty.lab_url,
+                "email": faculty.email,
+                "phone": faculty.phone,
+                "research_keywords": faculty.research_keywords,
+                "metadata": faculty.metadata_json,
+                "sections": [
+                    {
+                        "section_type": section.section_type,
+                        "title": section.title,
+                        "content": section.content,
+                        "source_url": section.source_url,
+                    }
+                    for section in sorted(faculty.sections, key=lambda item: (item.section_type, item.title))
+                ],
+                "sources": self._serialize_sources(faculty, pages_by_url),
+                "external_pages": external_pages,
+            }
+
+    def load_profile_sources(self, slug: str) -> dict | None:
+        with self.session_factory() as session:
+            faculty = session.scalar(select(FacultyModel).where(FacultyModel.slug == slug))
+            if faculty is None:
+                return None
+            pages_by_url = {page.url: page for page in faculty.pages}
+            return {
+                "slug": faculty.slug,
+                "sources": self._serialize_sources(faculty, pages_by_url),
+            }
+
+    def load_filter_metadata(self) -> dict:
+        with self.session_factory() as session:
+            universities = session.scalars(select(UniversityModel).order_by(UniversityModel.name)).all()
+            schools = session.scalars(select(SchoolModel).order_by(SchoolModel.name)).all()
+            return {
+                "universities": [item.name for item in universities],
+                "schools": [item.name for item in schools],
+            }
+
+    def load_external_source_queue(self, faculty_slug: str | None = None, limit: int = 20) -> list[dict]:
+        with self.session_factory() as session:
+            stmt = select(FacultyModel, SourceModel).join(SourceModel, SourceModel.faculty_id == FacultyModel.id)
+            rows = []
+            for faculty, source in session.execute(stmt):
+                if faculty_slug and faculty.slug != faculty_slug:
+                    continue
+                if source.source_type not in {"lab", "other", "project", "paper"}:
+                    continue
+                if source.url.startswith("fixture://"):
+                    continue
+                existing = session.scalar(select(PageModel).where(PageModel.url == source.url))
+                if existing is not None:
+                    continue
+                rows.append({"faculty_slug": faculty.slug, "url": source.url, "source_type": source.source_type})
+                if len(rows) >= limit:
+                    break
+            return rows
+
+    def build_collection_report(self, faculty_slug: str | None = None) -> dict:
+        with self.session_factory() as session:
+            stmt = select(FacultyModel).order_by(FacultyModel.name)
+            faculties = []
+            for faculty in session.scalars(stmt):
+                if faculty_slug and faculty.slug != faculty_slug:
+                    continue
+                pages_by_url = {page.url for page in faculty.pages}
+                source_rows = self._serialize_sources(faculty, {page.url: page for page in faculty.pages})
+                external_discovered = sum(1 for source in source_rows if source["is_external"])
+                external_crawled = sum(1 for source in source_rows if source["is_external"] and source["status"] == "crawled")
+                faculties.append(
+                    {
+                        "slug": faculty.slug,
+                        "name": faculty.name,
+                        "school": faculty.school.name,
+                        "external_discovered": external_discovered,
+                        "external_crawled": external_crawled,
+                        "missing_admissions": not any(section.section_type == "admissions" for section in faculty.sections),
+                        "missing_homepage": faculty.homepage_url not in pages_by_url if faculty.homepage_url else True,
+                    }
+                )
+            return {
+                "faculty_count": len(faculties),
+                "faculties": faculties,
+            }
+
+    @staticmethod
+    def _serialize_sources(faculty: FacultyModel, pages_by_url: dict[str, PageModel]) -> list[dict]:
+        sources = []
+        for source in sorted(faculty.sources, key=lambda item: item.url):
+            page = pages_by_url.get(source.url)
+            is_external = source.url != faculty.homepage_url and not source.url.startswith("https://person.zju.edu.cn")
+            status = "crawled" if page is not None else "discovered"
+            if source.source_type == "listing":
+                status = "reference"
+            sources.append(
+                {
+                    "url": source.url,
+                    "label": source.label,
+                    "source_type": source.source_type,
+                    "status": status,
+                    "is_external": is_external,
+                    "summary": page.text_content[:240] if page is not None else None,
+                }
+            )
+        return sources

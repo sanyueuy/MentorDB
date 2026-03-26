@@ -1,0 +1,154 @@
+:root {
+  --bg: #f4efe7;
+  --paper: #fffaf2;
+  --ink: #1d1b18;
+  --muted: #6e655b;
+  --line: #d8ccbd;
+  --accent: #0f766e;
+  --accent-soft: #d5f0eb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background:
+    radial-gradient(circle at top left, #fff8ec 0%, rgba(255, 248, 236, 0) 35%),
+    linear-gradient(180deg, #f3ebdf 0%, #efe7dc 100%);
+  color: var(--ink);
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page-shell {
+  min-height: 100vh;
+  padding: 32px 20px 60px;
+}
+
+.page-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.hero {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(2.2rem, 6vw, 4.8rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+
+.hero p {
+  margin: 0;
+  max-width: 760px;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.search-card, .panel, .result-card {
+  background: rgba(255, 250, 242, 0.82);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 16px 40px rgba(40, 25, 10, 0.05);
+}
+
+.search-card {
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.search-input, .select-input {
+  width: 100%;
+  border: 1px solid #cdbda8;
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: #fffdf8;
+  font-size: 1rem;
+}
+
+.grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+}
+
+.results {
+  display: grid;
+  gap: 16px;
+}
+
+.result-card {
+  padding: 18px;
+}
+
+.eyebrow {
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+}
+
+.result-title {
+  margin: 6px 0 8px;
+  font-size: 1.4rem;
+}
+
+.meta, .snippet {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tag {
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: var(--accent-soft);
+  color: #0d5d55;
+  font-size: 0.85rem;
+}
+
+.panel {
+  padding: 18px;
+  position: sticky;
+  top: 20px;
+  height: fit-content;
+}
+
+.source-item {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.source-item:last-child {
+  border-bottom: 0;
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    position: static;
+  }
+}

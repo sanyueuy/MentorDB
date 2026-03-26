@@ -5,8 +5,11 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+import uvicorn
 
+from mentor_index.collector.service import CollectorService
 from mentor_index.adapters.registry import get_adapter
+from mentor_index.api.app import app as api_app
 from mentor_index.core.config import AppSettings, load_settings
 from mentor_index.core.models import FacultyProfile, FacultySeed, ProfileSection, SearchFilters, SectionType, SourceRecord, SourceType
 from mentor_index.crawl.agent import PageFetcher
@@ -25,11 +28,13 @@ search_app = typer.Typer(help="Search commands.")
 index_app = typer.Typer(help="Index commands.")
 build_app = typer.Typer(help="Build commands.")
 export_app = typer.Typer(help="Export commands.")
+agent_app = typer.Typer(help="Collector agent commands.")
 app.add_typer(crawl_app, name="crawl")
 app.add_typer(search_app, name="search")
 app.add_typer(index_app, name="index")
 app.add_typer(build_app, name="build")
 app.add_typer(export_app, name="export")
+app.add_typer(agent_app, name="agent")
 
 
 def build_listing_only_profile(adapter, faculty_seed: FacultySeed) -> FacultyProfile:
@@ -86,6 +91,12 @@ def bootstrap(settings: Optional[AppSettings] = None):
     return settings, repository, fetcher, embedding_provider, retrieval, exporter
 
 
+def format_json_or_text(payload: dict, pretty: bool) -> str:
+    if pretty:
+        return "\n".join(f"{key}: {value}" for key, value in payload.items())
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
 @app.command("init-db")
 def init_db():
     settings, repository, *_ = bootstrap()
@@ -106,6 +117,11 @@ def validate_adapter(adapter_name: str):
     listing_page = adapter.fetch_listing_page(seeds[0], fetcher)
     faculty = adapter.list_faculty(listing_page)
     typer.echo(json.dumps({"adapter": adapter_name, "faculty_count": len(faculty)}, ensure_ascii=False))
+
+
+@app.command("serve-api")
+def serve_api(host: str = "127.0.0.1", port: int = 8000):
+    uvicorn.run(api_app, host=host, port=port)
 
 
 @crawl_app.command("school")
@@ -246,3 +262,76 @@ def answer(
     filters = SearchFilters(university=university, school=school)
     result = retrieval.answer(query=query, filters=filters, top_k=top_k)
     typer.echo(format_answer_result(result) if pretty else to_json(result) if json_output or not pretty else format_answer_result(result))
+
+
+@agent_app.command("discover")
+def agent_discover(
+    school: Optional[str] = None,
+    university: Optional[str] = None,
+    listing_url: Optional[str] = None,
+    pretty: bool = False,
+):
+    settings, repository, *_ = bootstrap()
+    collector = CollectorService(settings, repository)
+    payload = {
+        "candidates": [
+            {
+                "adapter_name": item.adapter_name,
+                "university": item.university,
+                "school": item.school,
+                "listing_url": item.listing_url,
+                "mode": item.mode,
+                "confidence": item.confidence,
+                "notes": item.notes,
+                "preview_count": item.preview_count,
+            }
+            for item in collector.discover(school=school, university=university, listing_url=listing_url)
+        ]
+    }
+    typer.echo(format_json_or_text(payload, pretty))
+
+
+@agent_app.command("preview")
+def agent_preview(
+    adapter_name: Optional[str] = None,
+    school: Optional[str] = None,
+    university: Optional[str] = None,
+    listing_url: Optional[str] = None,
+    limit: int = 10,
+    pretty: bool = False,
+):
+    settings, repository, *_ = bootstrap()
+    collector = CollectorService(settings, repository)
+    payload = collector.preview(adapter_name=adapter_name, university=university, school=school, listing_url=listing_url, limit=limit)
+    typer.echo(format_json_or_text(payload, pretty))
+
+
+@agent_app.command("crawl")
+def agent_crawl(
+    adapter_name: Optional[str] = None,
+    school: Optional[str] = None,
+    university: Optional[str] = None,
+    listing_url: Optional[str] = None,
+    limit: Optional[int] = None,
+    pretty: bool = False,
+):
+    settings, repository, *_ = bootstrap()
+    collector = CollectorService(settings, repository)
+    payload = collector.crawl(adapter_name=adapter_name, university=university, school=school, listing_url=listing_url, limit=limit)
+    typer.echo(format_json_or_text(payload, pretty))
+
+
+@agent_app.command("crawl-external")
+def agent_crawl_external(faculty_slug: Optional[str] = None, limit: int = 20, pretty: bool = False):
+    settings, repository, *_ = bootstrap()
+    collector = CollectorService(settings, repository)
+    payload = collector.crawl_external(faculty_slug=faculty_slug, limit=limit)
+    typer.echo(format_json_or_text(payload, pretty))
+
+
+@agent_app.command("report")
+def agent_report(faculty_slug: Optional[str] = None, pretty: bool = False):
+    settings, repository, *_ = bootstrap()
+    collector = CollectorService(settings, repository)
+    payload = collector.report(faculty_slug=faculty_slug)
+    typer.echo(format_json_or_text(payload, pretty))

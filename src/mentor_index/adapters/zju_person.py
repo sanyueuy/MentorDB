@@ -111,7 +111,9 @@ class ZjuPersonSearchAdapter(FacultyAdapter):
         pages = [homepage]
         tab_pages = self._fetch_person_columns(homepage, fetch_page)
         pages.extend(tab_pages)
-        pages.extend(self._fetch_linked_pages(pages, fetch_page, crawl_policy))
+        linked_pages, diagnostics = self._fetch_linked_pages(pages, fetch_page, crawl_policy)
+        homepage.metadata["linked_page_diagnostics"] = diagnostics
+        pages.extend(linked_pages)
         return pages
 
     def extract_entities(self, faculty_seed: FacultySeed, pages: list[RawPage]) -> dict[str, Any]:
@@ -129,6 +131,14 @@ class ZjuPersonSearchAdapter(FacultyAdapter):
         if base_info.get("lab_url"):
             sources.append(SourceRecord(url=base_info["lab_url"], label="课题组/实验室", source_type=SourceType.lab))
         known_urls = {source.url for source in sources}
+        diagnostics = homepage.metadata.get("linked_page_diagnostics", {})
+        for item in diagnostics.get("discovered", []):
+            url = item["url"]
+            if url in known_urls:
+                continue
+            source_type = SourceType(item.get("source_type", SourceType.other.value))
+            sources.append(SourceRecord(url=url, label=item.get("label", "关联外链"), source_type=source_type))
+            known_urls.add(url)
         declared_tabs = homepage.metadata.get("declared_tabs", {})
         for column_id, section_title in declared_tabs.items():
             if column_id == "0":
@@ -181,6 +191,7 @@ class ZjuPersonSearchAdapter(FacultyAdapter):
                 "school_search_url": faculty_seed.metadata.get("listing_url", self.listing_url),
                 "declared_tabs": homepage.metadata.get("declared_tabs", {}),
                 "fetched_tab_titles": [page.metadata.get("section_title") for page in pages[1:] if page.metadata.get("section_title")],
+                "external_link_diagnostics": homepage.metadata.get("linked_page_diagnostics", {}),
             }
         )
         if base_info.get("research_keywords"):
@@ -260,12 +271,21 @@ class ZjuPersonSearchAdapter(FacultyAdapter):
 
         return tab_pages
 
-    def _fetch_linked_pages(self, pages: list[RawPage], fetch_page, crawl_policy: CrawlPolicy) -> list[RawPage]:
+    def _fetch_linked_pages(self, pages: list[RawPage], fetch_page, crawl_policy: CrawlPolicy) -> tuple[list[RawPage], dict[str, list[dict[str, str]]]]:
         fetched: list[RawPage] = []
         visited = {page.url for page in pages}
         queue = deque((link, 2) for page in pages for link in page.links)
         base_domain = domain_of(pages[0].url)
         external_domains: set[str] = set()
+        diagnostics: dict[str, list[dict[str, str]]] = {
+            "discovered": [],
+            "crawled": [],
+            "skipped": [],
+            "failed": [],
+        }
+        lab_candidates = self._extract_lab_candidates(pages[0])
+        for url in lab_candidates:
+            queue.appendleft((url, 1))
 
         while queue and len(fetched) + len(pages) < crawl_policy.max_pages_per_faculty:
             url, depth = queue.popleft()
@@ -273,18 +293,30 @@ class ZjuPersonSearchAdapter(FacultyAdapter):
                 continue
             visited.add(url)
             link_domain = domain_of(url)
+            source_type = self._classify_external_source(url)
+            diagnostics["discovered"].append(
+                {
+                    "url": url,
+                    "label": "课题组/实验室" if source_type == SourceType.lab else "关联外链",
+                    "source_type": source_type.value,
+                }
+            )
             if link_domain and link_domain != base_domain:
                 external_domains.add(link_domain)
                 if len(external_domains) > crawl_policy.max_external_domains:
+                    diagnostics["skipped"].append({"url": url, "reason": "external_domain_budget"})
                     continue
             if not self._is_relevant_link(url):
+                diagnostics["skipped"].append({"url": url, "reason": "not_relevant"})
                 continue
             try:
                 page = fetch_page.fetch(url, depth=depth)
-            except Exception:
+            except Exception as exc:
+                diagnostics["failed"].append({"url": url, "reason": str(exc)})
                 continue
+            diagnostics["crawled"].append({"url": url})
             fetched.append(page)
-        return fetched
+        return fetched, diagnostics
 
     @staticmethod
     def _is_relevant_link(url: str) -> bool:
@@ -305,14 +337,49 @@ class ZjuPersonSearchAdapter(FacultyAdapter):
             "orcid.org",
             "dblp.org",
             "github.com",
+            "gitlab",
+            "arxiv.org",
+            "ieeexplore",
+            "springer",
+            "sciencedirect",
+            "zju.edu.cn",
             "lab",
             "group",
+            "team",
+            "center",
             "project",
+            "code",
+            "dataset",
             "publication",
             "paper",
             "research",
         )
         return any(keyword in lowered for keyword in allowed_keywords)
+
+    @staticmethod
+    def _classify_external_source(url: str) -> SourceType:
+        lowered = url.lower()
+        if any(keyword in lowered for keyword in ("lab", "group", "team", "center", "zju.edu.cn")):
+            return SourceType.lab
+        if any(keyword in lowered for keyword in ("github.com", "gitlab", "project", "code", "dataset")):
+            return SourceType.project
+        if any(keyword in lowered for keyword in ("paper", "publication", "arxiv", "ieeexplore", "dblp", "orcid")):
+            return SourceType.paper
+        return SourceType.other
+
+    @staticmethod
+    def _extract_lab_candidates(homepage: RawPage) -> list[str]:
+        if not homepage.raw_html:
+            return []
+        soup = BeautifulSoup(homepage.raw_html, "html.parser")
+        candidates = []
+        for anchor in soup.select("a[href]"):
+            text = normalize_space(anchor.get_text(" "))
+            if any(keyword in text for keyword in ["实验室", "课题组", "Lab", "Group", "团队"]):
+                href = resolve_url(homepage.url, anchor.get("href", ""))
+                if href:
+                    candidates.append(href)
+        return candidates
 
     @staticmethod
     def _extract_tab_titles(html: str) -> dict[str, str]:

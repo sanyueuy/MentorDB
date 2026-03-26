@@ -39,6 +39,38 @@ class RetrievalService:
         answer = self.llm_provider.answer(query=query, context_blocks=context)
         return AnswerResult(query=query, filters=result.filters, answer=answer, hits=result.hits)
 
+    def search_with_profiles(
+        self,
+        *,
+        query: str,
+        university: str | None = None,
+        school: str | None = None,
+        require_admissions: bool = False,
+        require_lab_url: bool = False,
+        top_k: int = 10,
+    ) -> dict:
+        filters = SearchFilters(
+            university=university,
+            school=school,
+            require_admissions=require_admissions,
+            require_lab_url=require_lab_url,
+        )
+        result = self.search(query=query, filters=filters, top_k=top_k)
+        cards = self.repository.load_faculty_cards([hit.faculty_slug for hit in result.hits])
+        enriched_hits = []
+        for hit in result.hits:
+            enriched_hits.append(
+                {
+                    **hit.model_dump(mode="json"),
+                    "faculty": cards.get(hit.faculty_slug, {}),
+                }
+            )
+        return {
+            "query": query,
+            "filters": filters.model_dump(mode="json"),
+            "hits": enriched_hits,
+        }
+
     @staticmethod
     def _rerank_bonus(lowered_query: str, row: dict) -> float:
         section = row["section_type"]
