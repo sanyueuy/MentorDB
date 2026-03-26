@@ -1,21 +1,19 @@
 # MentorDB
 
-**MentorDB** 是一个面向保研/考研导师资料采集、结构化建档与自然语言语义检索的开源系统。项目展示名是 `MentorDB`，当前对外 CLI 仍保持为 `mentor-index`，以减少首版迁移成本。
+**MentorDB** 是一个用于采集高校导师公开信息、生成结构化档案并支持自然语言检索的开源项目。
 
-系统默认采用“本地 embedding + 云端 LLM”的混合方案：
+它可以抓取教师主页和相关公开页面，整理出导师简介、研究方向、招生说明、联系方式和来源链接，并通过本地语义检索回答“想找做机器人的老师”或“明确写了研究生招生信息的老师”这类问题。
 
-- 本地 `sentence-transformers` 负责语义向量检索
-- Apple Silicon 优先使用 `MPS`
-- 云端 LLM 仅用于证据化问答 `mentor-index answer`
+项目展示名是 `MentorDB`，当前 CLI 名称仍为 `mentor-index`。默认使用本地 `sentence-transformers` 做向量检索，Apple Silicon 会优先使用 `MPS`；云端 LLM 只用于 `mentor-index answer` 这类证据化问答。
 
 ## 功能
 
 - 多高校插件化适配器
-- 爬虫智能体：发现入口、抓取导师页、深挖外链、增量更新
-- 检索智能体：结构化过滤、语义召回、关键词补召回、证据化回答
-- 标准化导师档案导出：JSON / JSONL / Markdown
-- OpenClaw skill：通过本地 CLI 调用 MentorDB 检索能力
-- 面向开源维护的稳定 schema、示例适配器与测试夹具
+- 公开页面抓取、外链跟进和增量更新
+- 自然语言语义检索与带来源的问答
+- 导师档案导出：JSON / JSONL / Markdown
+- OpenClaw skill，可通过本地 CLI 调用 MentorDB
+- 面向开源维护的稳定 schema、示例适配器和测试夹具
 
 ## 项目结构
 
