@@ -4,8 +4,6 @@
 
 它可以抓取教师主页和相关公开页面，整理出导师简介、研究方向、招生说明、联系方式和来源链接，并通过本地语义检索回答“想找做机器人的老师”或“明确写了研究生招生信息的老师”这类问题。
 
-项目展示名是 `MentorDB`，当前 CLI 名称仍为 `mentor-index`。默认使用本地 `sentence-transformers` 做向量检索，Apple Silicon 会优先使用 `MPS`；云端 LLM 只用于 `mentor-index answer` 这类证据化问答。
-
 ## 功能
 
 - 多高校插件化适配器
