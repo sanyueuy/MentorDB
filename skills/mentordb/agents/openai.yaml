@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: MentorDB
+  short_description: Search MentorDB for source-backed advisor recommendations.
+  default_prompt: Search local MentorDB data for advisors, admissions notes, and research directions, then answer with source-backed summaries.

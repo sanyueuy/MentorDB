@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/contracts/faculty_profile.schema.json",
+  "title": "FacultyProfile",
+  "type": "object",
+  "required": [
+    "slug",
+    "name",
+    "university",
+    "school",
+    "sections",
+    "sources"
+  ],
+  "properties": {
+    "slug": { "type": "string" },
+    "name": { "type": "string" },
+    "english_name": { "type": ["string", "null"] },
+    "university": { "type": "string" },
+    "school": { "type": "string" },
+    "title": { "type": ["string", "null"] },
+    "email": { "type": ["string", "null"] },
+    "phone": { "type": ["string", "null"] },
+    "homepage_url": { "type": ["string", "null"] },
+    "lab_url": { "type": ["string", "null"] },
+    "research_keywords": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "value", "source_url"],
+        "properties": {
+          "key": { "type": "string" },
+          "value": {},
+          "source_url": { "type": "string" }
+        }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["section_type", "title", "content", "source_url"],
+        "properties": {
+          "section_type": { "type": "string" },
+          "title": { "type": "string" },
+          "content": { "type": "string" },
+          "source_url": { "type": "string" }
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["url", "label"],
+        "properties": {
+          "url": { "type": "string" },
+          "label": { "type": "string" }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
