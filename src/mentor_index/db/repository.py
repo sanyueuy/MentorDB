@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select
 
 from mentor_index.core.models import EmbeddingChunk, FacultyProfile, RawPage, SearchFilters, SearchHit, SearchResult
-from mentor_index.core.utils import slugify
+from mentor_index.core.utils import domain_of, slugify
 from mentor_index.db.models import (
     Base,
     ChangeEventModel,
@@ -467,10 +467,25 @@ class Repository:
                     continue
                 if source.url.startswith("fixture://"):
                     continue
+                if source.url.startswith("https://person.zju.edu.cn"):
+                    continue
                 existing = session.scalar(select(PageModel).where(PageModel.url == source.url))
                 if existing is not None:
                     continue
-                rows.append({"faculty_slug": faculty.slug, "url": source.url, "source_type": source.source_type})
+                source_origin = None
+                diagnostics = (faculty.metadata_json or {}).get("external_link_diagnostics", {})
+                for item in diagnostics.get("discovered", []):
+                    if item.get("url") == source.url:
+                        source_origin = item.get("origin")
+                        break
+                rows.append(
+                    {
+                        "faculty_slug": faculty.slug,
+                        "url": source.url,
+                        "source_type": source.source_type,
+                        "origin": source_origin,
+                    }
+                )
                 if len(rows) >= limit:
                     break
             return rows
@@ -486,6 +501,7 @@ class Repository:
                 source_rows = self._serialize_sources(faculty, {page.url: page for page in faculty.pages})
                 external_discovered = sum(1 for source in source_rows if source["is_external"])
                 external_crawled = sum(1 for source in source_rows if source["is_external"] and source["status"] == "crawled")
+                discovery_summary = self._external_discovery_summary(faculty)
                 faculties.append(
                     {
                         "slug": faculty.slug,
@@ -493,12 +509,24 @@ class Repository:
                         "school": faculty.school.name,
                         "external_discovered": external_discovered,
                         "external_crawled": external_crawled,
+                        "external_discovery_sources": discovery_summary["sources"],
+                        "external_statuses": discovery_summary["statuses"],
                         "missing_admissions": not any(section.section_type == "admissions" for section in faculty.sections),
                         "missing_homepage": faculty.homepage_url not in pages_by_url if faculty.homepage_url else True,
                     }
                 )
+            totals = {
+                "sources": {},
+                "statuses": {},
+            }
+            for faculty in faculties:
+                for key, value in faculty["external_discovery_sources"].items():
+                    totals["sources"][key] = totals["sources"].get(key, 0) + value
+                for key, value in faculty["external_statuses"].items():
+                    totals["statuses"][key] = totals["statuses"].get(key, 0) + value
             return {
                 "faculty_count": len(faculties),
+                "external_discovery_totals": totals,
                 "faculties": faculties,
             }
 
@@ -511,6 +539,10 @@ class Repository:
             status = "crawled" if page is not None else "discovered"
             if source.source_type == "listing":
                 status = "reference"
+            final_url = page.metadata_json.get("final_url") if page is not None else None
+            final_domain = domain_of(final_url) if final_url else None
+            if is_external and page is not None and final_url and final_url.startswith("https://person.zju.edu.cn"):
+                status = "redirected_internal"
             sources.append(
                 {
                     "url": source.url,
@@ -518,7 +550,37 @@ class Repository:
                     "source_type": source.source_type,
                     "status": status,
                     "is_external": is_external,
+                    "final_url": final_url,
+                    "final_domain": final_domain,
                     "summary": page.text_content[:240] if page is not None else None,
                 }
             )
         return sources
+
+    @staticmethod
+    def _external_discovery_summary(faculty: FacultyModel) -> dict[str, dict[str, int]]:
+        diagnostics = (faculty.metadata_json or {}).get("external_link_diagnostics", {})
+        source_counts: dict[str, int] = {}
+        status_counts: dict[str, int] = {}
+        for item in diagnostics.get("discovered", []):
+            origin = item.get("origin", "unknown")
+            source_counts[origin] = source_counts.get(origin, 0) + 1
+            status_counts["discovered"] = status_counts.get("discovered", 0) + 1
+        for item in diagnostics.get("skipped", []):
+            key = f"skipped:{item.get('reason', 'unknown')}"
+            status_counts[key] = status_counts.get(key, 0) + 1
+        for item in diagnostics.get("failed", []):
+            status_counts["failed"] = status_counts.get("failed", 0) + 1
+        for item in diagnostics.get("crawled", []):
+            if item.get("redirected_back_internal") == "true":
+                status_counts["redirected_internal"] = status_counts.get("redirected_internal", 0) + 1
+            else:
+                status_counts["crawled"] = status_counts.get("crawled", 0) + 1
+        if not source_counts:
+            for page in faculty.pages:
+                discovery_sources = (page.metadata_json or {}).get("link_discovery_sources", {})
+                for source_url in {source.url for source in faculty.sources}:
+                    origins = discovery_sources.get(source_url, [])
+                    for origin in origins:
+                        source_counts[origin] = source_counts.get(origin, 0) + 1
+        return {"sources": source_counts, "statuses": status_counts}

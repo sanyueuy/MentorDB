@@ -17,6 +17,7 @@ dependencies = [
   "eval-type-backport>=0.2.0",
   "fastapi>=0.115.0",
   "httpx>=0.27.0",
+  "pypdf>=4.3.1",
   "pydantic>=2.8.2",
   "pydantic-settings>=2.3.4",
   "sentence-transformers>=3.0.1",
@@ -34,7 +35,6 @@ browser = [
   "playwright>=1.58.0",
 ]
 pdf = [
-  "pypdf>=4.3.1",
 ]
 
 [project.scripts]

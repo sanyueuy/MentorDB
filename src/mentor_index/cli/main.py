@@ -79,14 +79,14 @@ def build_listing_only_profile(adapter, faculty_seed: FacultySeed) -> FacultyPro
     )
 
 
-def bootstrap(settings: Optional[AppSettings] = None):
+def bootstrap(settings: Optional[AppSettings] = None, *, with_models: bool = True):
     settings = settings or load_settings()
     repository = Repository(settings.database_url)
     repository.init_db()
     fetcher = PageFetcher(settings)
-    embedding_provider = build_embedding_provider(settings)
-    llm_provider = build_llm_provider(settings)
-    retrieval = RetrievalService(repository, embedding_provider, llm_provider)
+    embedding_provider = build_embedding_provider(settings) if with_models else None
+    llm_provider = build_llm_provider(settings) if with_models else None
+    retrieval = RetrievalService(repository, embedding_provider, llm_provider) if with_models else None
     exporter = ExportService(repository)
     return settings, repository, fetcher, embedding_provider, retrieval, exporter
 
@@ -99,7 +99,7 @@ def format_json_or_text(payload: dict, pretty: bool) -> str:
 
 @app.command("init-db")
 def init_db():
-    settings, repository, *_ = bootstrap()
+    settings, repository, *_ = bootstrap(with_models=False)
     repository.init_db()
     typer.echo(f"Database initialized: {settings.database_url}")
 
@@ -109,7 +109,7 @@ def validate_adapter(adapter_name: str):
     settings = load_settings()
     if settings.adapter_fixture_dir is None:
         settings.adapter_fixture_dir = str(Path.cwd() / "tests" / "fixtures")
-    _, _, fetcher, *_ = bootstrap(settings)
+    _, _, fetcher, *_ = bootstrap(settings, with_models=False)
     adapter = get_adapter(adapter_name)
     seeds = adapter.discover_seeds()
     if not seeds:
@@ -131,7 +131,7 @@ def crawl_school(
     limit: Optional[int] = None,
     listing_only: bool = False,
 ):
-    settings, repository, fetcher, _, _, _ = bootstrap()
+    settings, repository, fetcher, _, _, _ = bootstrap(with_models=False)
     adapter = get_adapter(adapter_name)
     run_id = repository.create_crawl_run(adapter_name, "school", {"seed_url": seed_url, "limit": limit})
     listing_seed = adapter.discover_seeds()[0]
@@ -187,7 +187,7 @@ def crawl_school(
 
 @crawl_app.command("faculty")
 def crawl_faculty(adapter_name: str, faculty_url: str, faculty_name: Optional[str] = None):
-    settings, repository, fetcher, _, _, _ = bootstrap()
+    settings, repository, fetcher, _, _, _ = bootstrap(with_models=False)
     adapter = get_adapter(adapter_name)
     run_id = repository.create_crawl_run(adapter_name, "faculty", {"faculty_url": faculty_url})
     seed = FacultySeed(
@@ -215,14 +215,14 @@ def index_embeddings():
 
 @build_app.command("profiles")
 def build_profiles(output_dir: str = "out/profiles"):
-    _, repository, _, _, _, exporter = bootstrap()
+    _, repository, _, _, _, exporter = bootstrap(with_models=False)
     total = exporter.export_markdown_profiles(output_dir)
     typer.echo(f"Exported {total} markdown profiles to {output_dir}")
 
 
 @export_app.command("dataset")
 def export_dataset(output_dir: str = "out/dataset"):
-    _, repository, _, _, _, exporter = bootstrap()
+    _, repository, _, _, _, exporter = bootstrap(with_models=False)
     total = exporter.export_dataset(output_dir)
     typer.echo(f"Exported {total} profiles to {output_dir}")
 
@@ -271,7 +271,7 @@ def agent_discover(
     listing_url: Optional[str] = None,
     pretty: bool = False,
 ):
-    settings, repository, *_ = bootstrap()
+    settings, repository, *_ = bootstrap(with_models=False)
     collector = CollectorService(settings, repository)
     payload = {
         "candidates": [
@@ -300,7 +300,7 @@ def agent_preview(
     limit: int = 10,
     pretty: bool = False,
 ):
-    settings, repository, *_ = bootstrap()
+    settings, repository, *_ = bootstrap(with_models=False)
     collector = CollectorService(settings, repository)
     payload = collector.preview(adapter_name=adapter_name, university=university, school=school, listing_url=listing_url, limit=limit)
     typer.echo(format_json_or_text(payload, pretty))
@@ -315,7 +315,7 @@ def agent_crawl(
     limit: Optional[int] = None,
     pretty: bool = False,
 ):
-    settings, repository, *_ = bootstrap()
+    settings, repository, *_ = bootstrap(with_models=False)
     collector = CollectorService(settings, repository)
     payload = collector.crawl(adapter_name=adapter_name, university=university, school=school, listing_url=listing_url, limit=limit)
     typer.echo(format_json_or_text(payload, pretty))
@@ -323,7 +323,7 @@ def agent_crawl(
 
 @agent_app.command("crawl-external")
 def agent_crawl_external(faculty_slug: Optional[str] = None, limit: int = 20, pretty: bool = False):
-    settings, repository, *_ = bootstrap()
+    settings, repository, *_ = bootstrap(with_models=False)
     collector = CollectorService(settings, repository)
     payload = collector.crawl_external(faculty_slug=faculty_slug, limit=limit)
     typer.echo(format_json_or_text(payload, pretty))
@@ -331,7 +331,7 @@ def agent_crawl_external(faculty_slug: Optional[str] = None, limit: int = 20, pr
 
 @agent_app.command("report")
 def agent_report(faculty_slug: Optional[str] = None, pretty: bool = False):
-    settings, repository, *_ = bootstrap()
+    settings, repository, *_ = bootstrap(with_models=False)
     collector = CollectorService(settings, repository)
     payload = collector.report(faculty_slug=faculty_slug)
     typer.echo(format_json_or_text(payload, pretty))

@@ -11,6 +11,7 @@ from mentor_index.core.models import CrawlPolicy, FacultyProfile, FacultySeed, R
 from mentor_index.crawl.agent import PageFetcher
 from mentor_index.db.repository import Repository
 from mentor_index.extract.agent import ExtractAgent
+from mentor_index.core.utils import domain_of
 
 
 @dataclass
@@ -153,18 +154,30 @@ class CollectorService:
     def crawl_external(self, faculty_slug: str | None = None, limit: int = 20) -> dict:
         rows = self.repository.load_external_source_queue(faculty_slug=faculty_slug, limit=limit)
         crawled = 0
+        redirected_internal = 0
+        by_origin: dict[str, int] = {}
         failures: list[dict[str, str]] = []
         for row in rows:
             try:
                 page = self.fetcher.fetch(row["url"], depth=2)
                 self.repository.upsert_pages(row["faculty_slug"], [page])
-                crawled += 1
+                final_url = page.metadata.get("final_url", page.url)
+                if domain_of(final_url) == domain_of(row["url"]):
+                    crawled += 1
+                elif "person.zju.edu.cn" in final_url:
+                    redirected_internal += 1
+                else:
+                    crawled += 1
+                origin = row.get("origin") or "unknown"
+                by_origin[origin] = by_origin.get(origin, 0) + 1
             except Exception as exc:
                 failures.append({"faculty_slug": row["faculty_slug"], "url": row["url"], "error": str(exc)})
         return {
             "requested": len(rows),
             "crawled": crawled,
+            "redirected_internal": redirected_internal,
             "failed": len(failures),
+            "by_origin": by_origin,
             "failures": failures[:20],
         }
 

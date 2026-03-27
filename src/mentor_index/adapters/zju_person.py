@@ -19,6 +19,7 @@ from mentor_index.extract.normalizer import extract_sections_from_html, guess_se
 
 PERSON_ROOT = "https://person.zju.edu.cn"
 PERSON_SITE_PATH = "https://person.zju.edu.cn/person"
+TEXT_URL_PATTERN = re.compile(r"https?://[^\s<>'\"\])]+")
 
 
 @dataclass(frozen=True)
@@ -274,7 +275,8 @@ class ZjuPersonSearchAdapter(FacultyAdapter):
     def _fetch_linked_pages(self, pages: list[RawPage], fetch_page, crawl_policy: CrawlPolicy) -> tuple[list[RawPage], dict[str, list[dict[str, str]]]]:
         fetched: list[RawPage] = []
         visited = {page.url for page in pages}
-        queue = deque((link, 2) for page in pages for link in page.links)
+        queue: deque[tuple[str, int, str]] = deque()
+        seen_discovered: set[str] = set()
         base_domain = domain_of(pages[0].url)
         external_domains: set[str] = set()
         diagnostics: dict[str, list[dict[str, str]]] = {
@@ -283,12 +285,21 @@ class ZjuPersonSearchAdapter(FacultyAdapter):
             "skipped": [],
             "failed": [],
         }
-        lab_candidates = self._extract_lab_candidates(pages[0])
-        for url in lab_candidates:
-            queue.appendleft((url, 1))
+        for page in pages:
+            for url, origin in self._discover_link_candidates(page):
+                if url in seen_discovered:
+                    continue
+                seen_discovered.add(url)
+                queue.append((url, 2 if origin != "button_text" else 1, origin))
+
+        for url in self._extract_lab_candidates(pages[0]):
+            if url in seen_discovered:
+                continue
+            seen_discovered.add(url)
+            queue.appendleft((url, 1, "lab_button"))
 
         while queue and len(fetched) + len(pages) < crawl_policy.max_pages_per_faculty:
-            url, depth = queue.popleft()
+            url, depth, origin = queue.popleft()
             if url in visited or depth > crawl_policy.max_depth:
                 continue
             visited.add(url)
@@ -299,23 +310,40 @@ class ZjuPersonSearchAdapter(FacultyAdapter):
                     "url": url,
                     "label": "课题组/实验室" if source_type == SourceType.lab else "关联外链",
                     "source_type": source_type.value,
+                    "origin": origin,
                 }
             )
             if link_domain and link_domain != base_domain:
                 external_domains.add(link_domain)
                 if len(external_domains) > crawl_policy.max_external_domains:
-                    diagnostics["skipped"].append({"url": url, "reason": "external_domain_budget"})
+                    diagnostics["skipped"].append({"url": url, "reason": "external_domain_budget", "origin": origin})
                     continue
             if not self._is_relevant_link(url):
-                diagnostics["skipped"].append({"url": url, "reason": "not_relevant"})
+                diagnostics["skipped"].append({"url": url, "reason": "not_relevant", "origin": origin})
                 continue
             try:
                 page = fetch_page.fetch(url, depth=depth)
             except Exception as exc:
-                diagnostics["failed"].append({"url": url, "reason": str(exc)})
+                diagnostics["failed"].append({"url": url, "reason": str(exc), "origin": origin})
                 continue
-            diagnostics["crawled"].append({"url": url})
+            final_url = page.metadata.get("final_url", page.url)
+            diagnostics["crawled"].append(
+                {
+                    "url": url,
+                    "origin": origin,
+                    "final_url": final_url,
+                    "content_type": page.content_type,
+                    "final_domain": domain_of(final_url),
+                    "redirected_back_internal": str(domain_of(final_url) == base_domain).lower(),
+                }
+            )
             fetched.append(page)
+            if "html" in page.content_type and depth < crawl_policy.max_depth:
+                for candidate_url, candidate_origin in self._discover_link_candidates(page):
+                    if candidate_url in seen_discovered or candidate_url in visited:
+                        continue
+                    seen_discovered.add(candidate_url)
+                    queue.append((candidate_url, depth + 1, f"recursive:{candidate_origin}"))
         return fetched, diagnostics
 
     @staticmethod
@@ -379,6 +407,19 @@ class ZjuPersonSearchAdapter(FacultyAdapter):
                 href = resolve_url(homepage.url, anchor.get("href", ""))
                 if href:
                     candidates.append(href)
+        return candidates
+
+    @staticmethod
+    def _discover_link_candidates(page: RawPage) -> list[tuple[str, str]]:
+        candidates: list[tuple[str, str]] = []
+        discovery_sources = page.metadata.get("link_discovery_sources", {})
+        for url in page.links:
+            origins = discovery_sources.get(url) or ["anchor"]
+            for origin in origins:
+                candidates.append((url, origin))
+        if page.text:
+            for match in TEXT_URL_PATTERN.findall(page.text):
+                candidates.append((match.rstrip(").,;"), "text"))
         return candidates
 
     @staticmethod

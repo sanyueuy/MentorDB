@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from pypdf import PdfWriter
 
 from mentor_index.adapters.heuristic import HeuristicAdapterConfig, HeuristicDirectoryAdapter
 from mentor_index.api.app import app
@@ -18,15 +19,19 @@ class MemoryFetcher:
 
     def fetch(self, url: str, depth: int = 0):
         html = self.pages[url]
+        from mentor_index.crawl.agent import PageFetcher
+
+        title, links, metadata = PageFetcher._extract_html_metadata(html, url)
         return RawPage(
             url=url,
             depth=depth,
             status_code=200,
             content_type="text/html",
-            title="page",
+            title=title or "page",
             text=html,
             raw_html=html,
-            links=self.extract_links(html, url),
+            links=links,
+            metadata=metadata,
             fingerprint=sha256_text(html),
         )
 
@@ -51,12 +56,19 @@ def seed_generic_profile(repository: Repository, settings):
         <h1>Alice</h1>
         <h2>研究方向</h2><p>机器人 视觉</p>
         <a href="https://lab.example.com/alice">实验室</a>
+        <p>Github: https://github.com/example/alice-robot</p>
         </body></html>
         """,
         "https://lab.example.com/alice": """
         <html><body>
         <h1>Robot Lab</h1>
         <h2>项目</h2><p>外链正文已抓取。</p>
+        </body></html>
+        """,
+        "https://github.com/example/alice-robot": """
+        <html><body>
+        <h1>alice-robot</h1>
+        <p>project page</p>
         </body></html>
         """,
     }
@@ -85,6 +97,7 @@ def test_collection_report_marks_external_sources(repository, settings):
 
     assert report["faculty_count"] == 1
     assert report["faculties"][0]["external_crawled"] >= 1
+    assert report["faculties"][0]["external_discovery_sources"]
 
 
 def test_api_search_and_detail(repository, settings, monkeypatch):
@@ -114,3 +127,30 @@ def test_api_search_and_detail(repository, settings, monkeypatch):
     assert search_response.json()["hits"]
     assert detail_response.status_code == 200
     assert detail_response.json()["external_pages"]
+
+
+def test_html_text_url_is_discovered(repository, settings):
+    profile = seed_generic_profile(repository, settings)
+    detail = repository.load_profile_detail(profile.slug)
+
+    assert detail is not None
+    assert any(page["url"] == "https://github.com/example/alice-robot" for page in detail["external_pages"])
+    source = next(item for item in detail["sources"] if item["url"] == "https://github.com/example/alice-robot")
+    assert source["status"] == "crawled"
+
+
+def test_pdf_links_are_extracted(tmp_path, settings):
+    pdf_path = tmp_path / "sample.pdf"
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=300, height=300)
+    writer.add_uri(page_number=0, uri="https://lab.example.com/from-pdf", rect=(10, 10, 120, 30))
+    with pdf_path.open("wb") as handle:
+        writer.write(handle)
+
+    fetcher = __import__("mentor_index.crawl.agent", fromlist=["PageFetcher"]).PageFetcher(settings)
+    page = fetcher.fetch(f"fixture://{pdf_path.name}") if False else None
+    with pdf_path.open("rb") as handle:
+        title, text, links, metadata = fetcher._extract_pdf_metadata(handle.read())
+
+    assert "https://lab.example.com/from-pdf" in links
+    assert metadata["link_discovery_sources"]["https://lab.example.com/from-pdf"] == ["pdf_annotation"]

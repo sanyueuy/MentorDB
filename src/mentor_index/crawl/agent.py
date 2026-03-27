@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 from collections import deque
+from io import BytesIO
 from pathlib import Path
+import re
 import time
 from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
+from pypdf import PdfReader
 
 from mentor_index.core.config import AppSettings
 from mentor_index.core.models import CrawlPolicy, RawPage
 from mentor_index.core.utils import domain_of, normalize_space, resolve_url, sha256_text
+
+
+URL_PATTERN = re.compile(r"https?://[^\s<>'\"\])]+")
 
 
 class PageFetcher:
@@ -21,11 +27,18 @@ class PageFetcher:
         if url.startswith("fixture://"):
             return self._fetch_fixture(url, depth)
         response = self._get_with_retries(url)
+        final_url = str(response.url)
         content_type = response.headers.get("content-type", "text/html").split(";")[0]
-        text = response.text
-        title, links = self._extract_html_metadata(text, url) if "html" in content_type else (None, [])
+        metadata = {"requested_url": url, "final_url": final_url}
+        if "pdf" in content_type or final_url.lower().endswith(".pdf"):
+            title, text, links, pdf_metadata = self._extract_pdf_metadata(response.content)
+            metadata.update(pdf_metadata)
+        else:
+            text = response.text
+            title, links, html_metadata = self._extract_html_metadata(text, final_url)
+            metadata.update(html_metadata)
         return RawPage(
-            url=str(response.url),
+            url=url,
             depth=depth,
             status_code=response.status_code,
             content_type=content_type,
@@ -33,6 +46,7 @@ class PageFetcher:
             text=normalize_space(BeautifulSoup(text, "html.parser").get_text("\n")),
             raw_html=text if "html" in content_type else None,
             links=links,
+            metadata=metadata,
             fingerprint=sha256_text(text),
         )
 
@@ -64,7 +78,7 @@ class PageFetcher:
         raise RuntimeError(f"Failed to fetch URL: {url}")
 
     def extract_links(self, html: str, base_url: str) -> list[str]:
-        _, links = self._extract_html_metadata(html, base_url)
+        _, links, _ = self._extract_html_metadata(html, base_url)
         return links
 
     def _fetch_fixture(self, url: str, depth: int) -> RawPage:
@@ -72,7 +86,7 @@ class PageFetcher:
         relative = url.removeprefix("fixture://")
         target = fixture_root / relative
         text = target.read_text(encoding="utf-8")
-        title, links = self._extract_html_metadata(text, url)
+        title, links, metadata = self._extract_html_metadata(text, url)
         return RawPage(
             url=url,
             depth=depth,
@@ -82,20 +96,80 @@ class PageFetcher:
             text=normalize_space(BeautifulSoup(text, "html.parser").get_text("\n")),
             raw_html=text,
             links=links,
+            metadata=metadata,
             fingerprint=sha256_text(text),
         )
 
     @staticmethod
-    def _extract_html_metadata(html: str, base_url: str) -> tuple[str | None, list[str]]:
+    def _extract_html_metadata(html: str, base_url: str) -> tuple[str | None, list[str], dict]:
         soup = BeautifulSoup(html, "html.parser")
         title = soup.title.get_text(strip=True) if soup.title else None
-        links = []
+        link_records: list[tuple[str, str]] = []
         for anchor in soup.select("a[href]"):
             href = anchor.get("href", "").strip()
             if not href or href.startswith("#") or href.startswith("javascript:"):
                 continue
-            links.append(resolve_url(base_url, href))
-        return title, links
+            resolved = resolve_url(base_url, href)
+            link_records.append((resolved, "anchor"))
+
+        text_blob = soup.get_text("\n")
+        for match in URL_PATTERN.findall(text_blob):
+            link_records.append((match.rstrip(").,;"), "text"))
+
+        for node in soup.select("button, [role='button'], .btn, .button, .card, .link-card"):
+            label = normalize_space(node.get_text(" "))
+            if any(keyword in label.lower() for keyword in ("lab", "group", "homepage", "publication", "github", "项目", "课题组", "实验室")):
+                href = node.get("data-href") or node.get("data-url") or node.get("onclick", "")
+                match = re.search(r"https?://[^\s'\"\\)]+", href)
+                if match:
+                    link_records.append((match.group(0), "button_text"))
+
+        unique_links: list[str] = []
+        seen: set[str] = set()
+        discovery_sources: dict[str, list[str]] = {}
+        for link, source in link_records:
+            normalized = link.strip()
+            normalized = normalized.rstrip("#")
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            unique_links.append(normalized)
+            discovery_sources.setdefault(normalized, []).append(source)
+        return title, unique_links, {"link_discovery_sources": discovery_sources}
+
+    @staticmethod
+    def _extract_pdf_metadata(content: bytes) -> tuple[str | None, str, list[str], dict]:
+        reader = PdfReader(BytesIO(content))
+        text_parts: list[str] = []
+        link_records: list[tuple[str, str]] = []
+        for page in reader.pages:
+            page_text = page.extract_text() or ""
+            if page_text:
+                text_parts.append(page_text)
+                for match in URL_PATTERN.findall(page_text):
+                    link_records.append((match.rstrip(").,;"), "pdf_text"))
+            annotations = page.get("/Annots") or []
+            for annotation in annotations:
+                try:
+                    obj = annotation.get_object()
+                except Exception:
+                    continue
+                action = obj.get("/A")
+                if action and action.get("/URI"):
+                    link_records.append((str(action.get("/URI")), "pdf_annotation"))
+        unique_links: list[str] = []
+        seen: set[str] = set()
+        discovery_sources: dict[str, list[str]] = {}
+        for link, source in link_records:
+            normalized = link.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            unique_links.append(normalized)
+            discovery_sources.setdefault(normalized, []).append(source)
+        title = reader.metadata.title if reader.metadata else None
+        text = "\n".join(part for part in text_parts if part).strip()
+        return title, text, unique_links, {"link_discovery_sources": discovery_sources, "pdf_page_count": len(reader.pages)}
 
 
 class CrawlerAgent:
