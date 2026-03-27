@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 from pypdf import PdfWriter
+from sqlalchemy import select
 
 from mentor_index.adapters.heuristic import HeuristicAdapterConfig, HeuristicDirectoryAdapter
 from mentor_index.api.app import app
 from mentor_index.collector.service import CollectorService
 from mentor_index.core.models import RawPage
 from mentor_index.core.utils import sha256_text
+from mentor_index.db.models import FacultyModel, SourceModel
 from mentor_index.db.repository import Repository
 from mentor_index.extract.agent import ExtractAgent
 
@@ -129,6 +131,26 @@ def test_api_search_and_detail(repository, settings, monkeypatch):
     assert search_response.json()["hits"][0]["section_label"]
     assert detail_response.status_code == 200
     assert detail_response.json()["external_pages"]
+
+
+def test_profile_detail_hides_generic_navigation_sources(repository, settings):
+    profile = seed_generic_profile(repository, settings)
+
+    with repository.session_factory.begin() as session:
+        faculty_id = session.execute(select(FacultyModel.id).where(FacultyModel.slug == profile.slug)).scalar_one()
+        session.add(
+            SourceModel(
+                faculty_id=faculty_id,
+                url="http://service.zju.edu.cn",
+                label="课题组/实验室",
+                source_type="lab",
+            )
+        )
+
+    detail = repository.load_profile_detail(profile.slug)
+
+    assert detail is not None
+    assert not any(source["url"] == "http://service.zju.edu.cn" for source in detail["sources"])
 
 
 def test_html_text_url_is_discovered(repository, settings):

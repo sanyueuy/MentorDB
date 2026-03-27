@@ -62,6 +62,15 @@ class Repository:
         "Cited by",
         "Related works",
     }
+    NOISE_SOURCE_URL_KEYWORDS = (
+        "service.zju.edu.cn",
+        "zjuam.zju.edu.cn",
+        "www.zju.edu.cn/512/list.htm",
+        "www.zju.edu.cn/english/about/list.htm",
+        "person.zju.edu.cn/index/",
+        "person.zju.edu.cn/person/personalPage.php",
+        "person.zju.edu.cn/index/computedData",
+    )
 
     def create_crawl_run(self, adapter_name: str, scope: str, parameters: dict) -> int:
         with self.session_factory.begin() as session:
@@ -508,7 +517,7 @@ class Repository:
                         key=lambda item: (self.SECTION_PRIORITY.get(item.section_type, 99), item.title),
                     )
                 ],
-                "sources": self._serialize_sources(faculty, pages_by_url),
+                "sources": self._visible_sources(faculty, pages_by_url),
                 "external_pages": external_pages,
             }
 
@@ -520,7 +529,7 @@ class Repository:
             pages_by_url = {page.url: page for page in faculty.pages}
             return {
                 "slug": faculty.slug,
-                "sources": self._serialize_sources(faculty, pages_by_url),
+                "sources": self._visible_sources(faculty, pages_by_url),
             }
 
     def load_filter_metadata(self) -> dict:
@@ -632,6 +641,19 @@ class Repository:
                 }
             )
         return sources
+
+    @classmethod
+    def _visible_sources(cls, faculty: FacultyModel, pages_by_url: dict[str, PageModel]) -> list[dict]:
+        serialized = cls._serialize_sources(faculty, pages_by_url)
+        visible: list[dict] = []
+        for source in serialized:
+            url = source["url"]
+            final_url = source.get("final_url") or ""
+            combined = f"{url} {final_url}".lower()
+            if any(keyword in combined for keyword in cls.NOISE_SOURCE_URL_KEYWORDS):
+                continue
+            visible.append(source)
+        return visible
 
     @staticmethod
     def _external_discovery_summary(faculty: FacultyModel) -> dict[str, dict[str, int]]:
