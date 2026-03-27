@@ -431,6 +431,13 @@ class ZjuPersonSearchAdapter(FacultyAdapter):
             title = normalize_space(item.get_text(" "))
             if column_id:
                 tab_titles[column_id] = title
+        if not tab_titles:
+            for item in soup.select('li[onclick*="columnData("]'):
+                onclick = item.get("onclick", "")
+                matched = re.search(r"columnData\(this,\s*(-?\d+)\)", onclick)
+                title = normalize_space(item.get_text(" "))
+                if matched and title:
+                    tab_titles[matched.group(1)] = title
         if "0" not in tab_titles:
             tab_titles["0"] = "个人简介"
         return tab_titles

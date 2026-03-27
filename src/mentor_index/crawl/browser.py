@@ -134,18 +134,28 @@ class BrowserSearchFetcher:
             page = browser.new_page()
             page.goto(url, wait_until="commit", timeout=self.settings.browser_timeout_ms)
             page.wait_for_timeout(self.settings.browser_wait_after_load_ms)
-            page.wait_for_function(
-                """() => {
-                  return !!(window.columnData && document.querySelector('#tab_nav li[col]'));
-                }""",
-                timeout=min(self.settings.browser_timeout_ms, 20000),
-            )
+            try:
+                page.wait_for_function(
+                    """() => {
+                      const staticTabs = document.querySelector('li[onclick*="columnData("]');
+                      const dynamicTabs = document.querySelector('#tab_nav li[col]');
+                      return !!window.columnData && !!(staticTabs || dynamicTabs);
+                    }""",
+                    timeout=min(self.settings.browser_timeout_ms, 20000),
+                )
+            except PlaywrightTimeoutError:
+                page.wait_for_timeout(1500)
             tab_entries = page.evaluate(
                 """() => {
-                  return Array.from(document.querySelectorAll('#tab_nav li[col]')).map((item) => ({
-                    column_id: item.getAttribute('col'),
-                    title: (item.textContent || '').trim()
-                  }));
+                  const tabs = Array.from(document.querySelectorAll('#tab_nav li[col], li[onclick*="columnData("]'));
+                  return tabs.map((item) => {
+                    const onclickValue = item.getAttribute('onclick') || '';
+                    const matched = onclickValue.match(/columnData\(this,\s*(-?\d+)\)/);
+                    return {
+                      column_id: item.getAttribute('col') || (matched ? matched[1] : null),
+                      title: (item.textContent || '').trim()
+                    };
+                  }).filter((item) => !!item.column_id);
                 }"""
             )
             seen_fingerprints: set[str] = set()
@@ -157,7 +167,8 @@ class BrowserSearchFetcher:
                         lambda response: "/api/column?" in response.url and f"column_id={entry['column_id']}" in response.url,
                         timeout=10000,
                     ) as response_info:
-                        page.locator(f"#tab_nav li[col='{entry['column_id']}'] a").click(timeout=5000)
+                        tab_selector = f"#tab_nav li[col='{entry['column_id']}'] a, li[onclick*=\"columnData(this,{entry['column_id']})\"]"
+                        page.locator(tab_selector).first.click(timeout=5000)
                     response = response_info.value
                     status_code = response.status
                     if response.ok:
