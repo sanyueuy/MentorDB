@@ -50,15 +50,25 @@ def get_filters():
 def search_faculty(
     q: str = Query(..., min_length=1),
     top_k: int = Query(10, ge=1, le=50),
+    universities: list[str] = Query(default_factory=list),
+    schools: list[str] = Query(default_factory=list),
+    tiers: list[str] = Query(default_factory=list),
     university: str | None = None,
     school: str | None = None,
     require_admissions: bool = False,
     require_lab_url: bool = False,
 ):
+    selected_universities = [*universities]
+    selected_schools = [*schools]
+    if university:
+        selected_universities.append(university)
+    if school:
+        selected_schools.append(school)
     return get_retrieval().search_with_profiles(
         query=q,
-        university=university,
-        school=school,
+        universities=list(dict.fromkeys(selected_universities)),
+        schools=list(dict.fromkeys(selected_schools)),
+        tiers=list(dict.fromkeys(tiers)),
         require_admissions=require_admissions,
         require_lab_url=require_lab_url,
         top_k=top_k,

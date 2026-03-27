@@ -14,7 +14,7 @@ def build_hit(section_type: SectionType = SectionType.admissions) -> SearchHit:
 
 
 def test_format_search_result_includes_human_readable_labels():
-    result = SearchResult(query="找招研究生的老师", filters=SearchFilters(school="控制科学与工程学院"), hits=[build_hit()])
+    result = SearchResult(query="找招研究生的老师", filters=SearchFilters(schools=["控制科学与工程学院"]), hits=[build_hit()])
 
     rendered = format_search_result(result)
 
@@ -22,6 +22,20 @@ def test_format_search_result_includes_human_readable_labels():
     assert "学院=控制科学与工程学院" in rendered
     assert "赵春晖 | 招生说明" in rendered
     assert "来源：https://person.zju.edu.cn/chhzhao#column-651795" in rendered
+
+
+def test_format_search_result_renders_multi_filters():
+    result = SearchResult(
+        query="找机器人老师",
+        filters=SearchFilters(universities=["浙江大学"], schools=["控制科学与工程学院", "软件学院"], tiers=["985", "double_first_class"]),
+        hits=[build_hit()],
+    )
+
+    rendered = format_search_result(result)
+
+    assert "学校=浙江大学" in rendered
+    assert "学院=控制科学与工程学院,软件学院" in rendered
+    assert "标签=985,double_first_class" in rendered
 
 
 def test_format_answer_result_lists_supporting_sources():

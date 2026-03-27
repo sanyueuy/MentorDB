@@ -43,15 +43,17 @@ class RetrievalService:
         self,
         *,
         query: str,
-        university: str | None = None,
-        school: str | None = None,
+        universities: list[str] | None = None,
+        schools: list[str] | None = None,
+        tiers: list[str] | None = None,
         require_admissions: bool = False,
         require_lab_url: bool = False,
         top_k: int = 10,
     ) -> dict:
         filters = SearchFilters(
-            university=university,
-            school=school,
+            universities=universities or [],
+            schools=schools or [],
+            tiers=tiers or [],
             require_admissions=require_admissions,
             require_lab_url=require_lab_url,
         )

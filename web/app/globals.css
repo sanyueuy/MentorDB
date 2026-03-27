@@ -149,6 +149,22 @@ select {
   margin-bottom: 22px;
 }
 
+.multi-filter-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.multi-filter-group {
+  display: grid;
+  gap: 10px;
+}
+
+.chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .search-row,
 .filters-grid,
 .toggle-row,
@@ -175,6 +191,10 @@ select {
 .filters-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 160px;
+}
+
+.compact-grid {
+  grid-template-columns: 180px;
 }
 
 .field {
@@ -233,10 +253,25 @@ select {
   align-items: center;
   gap: 8px;
   cursor: pointer;
+  flex-wrap: wrap;
 }
 
 .toggle-chip input {
   accent-color: var(--accent);
+}
+
+.toggle-chip-active {
+  background: rgba(15, 118, 110, 0.12);
+  border-color: rgba(15, 118, 110, 0.28);
+}
+
+.tiny-tag {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(200, 181, 157, 0.75);
 }
 
 .submit-button,
@@ -304,6 +339,12 @@ select {
 
 .summary-chip-muted {
   opacity: 0.75;
+}
+
+.tag-tier {
+  background: rgba(15, 118, 110, 0.1);
+  border-color: rgba(15, 118, 110, 0.22);
+  color: var(--accent);
 }
 
 .workspace-grid,
@@ -544,6 +585,7 @@ select {
   }
 
   .filters-grid,
+  .compact-grid,
   .info-grid {
     grid-template-columns: 1fr;
   }

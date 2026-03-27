@@ -119,9 +119,27 @@ class EmbeddingChunk(BaseModel):
 class SearchFilters(BaseModel):
     university: str | None = None
     school: str | None = None
+    universities: list[str] = Field(default_factory=list)
+    schools: list[str] = Field(default_factory=list)
+    tiers: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     require_admissions: bool = False
     require_lab_url: bool = False
+
+    def normalized_universities(self) -> list[str]:
+        values = [*self.universities]
+        if self.university:
+            values.append(self.university)
+        return list(dict.fromkeys(item for item in values if item))
+
+    def normalized_schools(self) -> list[str]:
+        values = [*self.schools]
+        if self.school:
+            values.append(self.school)
+        return list(dict.fromkeys(item for item in values if item))
+
+    def normalized_tiers(self) -> list[str]:
+        return list(dict.fromkeys(item for item in self.tiers if item))
 
 
 class SearchHit(BaseModel):

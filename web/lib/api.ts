@@ -1,4 +1,21 @@
-const API_BASE = process.env.NEXT_PUBLIC_MENTORDB_API_BASE_URL || "http://127.0.0.1:8000";
+const API_BASE =
+  process.env.MENTORDB_API_BASE_URL || process.env.NEXT_PUBLIC_MENTORDB_API_BASE_URL || "http://127.0.0.1:8000";
+
+export type UniversityOption = {
+  name: string;
+  tiers: string[];
+  metadata?: {
+    name: string;
+    is_985: boolean;
+    is_211: boolean;
+    is_double_first_class: boolean;
+  } | null;
+};
+
+export type SchoolOption = {
+  name: string;
+  university: string;
+};
 
 export type FacultyCard = {
   slug: string;
@@ -6,6 +23,7 @@ export type FacultyCard = {
   title?: string | null;
   school?: string;
   university?: string;
+  tiers?: string[];
   homepage_url?: string | null;
   lab_url?: string | null;
   research_keywords?: string[];
@@ -30,6 +48,9 @@ export type SearchResponse = {
   filters: {
     university?: string | null;
     school?: string | null;
+    universities?: string[];
+    schools?: string[];
+    tiers?: string[];
     keywords?: string[];
     require_admissions?: boolean;
     require_lab_url?: boolean;
@@ -39,8 +60,9 @@ export type SearchResponse = {
 };
 
 export type FilterMetadata = {
-  universities: string[];
-  schools: string[];
+  tiers: Array<{ key: string; label: string }>;
+  universities: UniversityOption[];
+  schools: SchoolOption[];
 };
 
 export type FacultySection = {
@@ -75,6 +97,7 @@ export type FacultyDetail = {
   title?: string | null;
   school: string;
   university: string;
+  tiers?: string[];
   homepage_url?: string | null;
   lab_url?: string | null;
   email?: string | null;

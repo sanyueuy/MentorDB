@@ -21,12 +21,17 @@ SECTION_LABELS = {
 
 def format_search_result(result: SearchResult) -> str:
     lines = [f"查询：{result.query}"]
-    if result.filters.university or result.filters.school:
+    selected_universities = result.filters.normalized_universities()
+    selected_schools = result.filters.normalized_schools()
+    selected_tiers = result.filters.normalized_tiers()
+    if selected_universities or selected_schools or selected_tiers:
         filters = []
-        if result.filters.university:
-            filters.append(f"学校={result.filters.university}")
-        if result.filters.school:
-            filters.append(f"学院={result.filters.school}")
+        if selected_universities:
+            filters.append(f"学校={','.join(selected_universities)}")
+        if selected_schools:
+            filters.append(f"学院={','.join(selected_schools)}")
+        if selected_tiers:
+            filters.append(f"标签={','.join(selected_tiers)}")
         lines.append(f"筛选：{'，'.join(filters)}")
     if not result.hits:
         lines.append("未命中任何导师。")

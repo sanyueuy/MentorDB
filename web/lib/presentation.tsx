@@ -64,17 +64,27 @@ export function highlightText(text: string, query: string): ReactNode {
 }
 
 export function summarizeFilters(filters: {
-  university?: string | null;
-  school?: string | null;
+  universities?: string[];
+  schools?: string[];
+  tiers?: string[];
   require_admissions?: boolean;
   require_lab_url?: boolean;
   top_k?: number;
 }): string[] {
   const parts: string[] = [];
-  if (filters.university) parts.push(filters.university);
-  if (filters.school) parts.push(filters.school);
+  if (filters.universities?.length) parts.push(`学校 ${filters.universities.join(" / ")}`);
+  if (filters.schools?.length) parts.push(`学院 ${filters.schools.join(" / ")}`);
+  if (filters.tiers?.length) parts.push(`标签 ${filters.tiers.map((item) => tierLabel(item)).join(" / ")}`);
   if (filters.require_admissions) parts.push("仅看有招生说明");
   if (filters.require_lab_url) parts.push("仅看有实验室链接");
   if (filters.top_k) parts.push(`Top ${filters.top_k}`);
   return parts;
+}
+
+export function tierLabel(tier: string): string {
+  return {
+    "985": "985",
+    "211": "211",
+    double_first_class: "双一流",
+  }[tier] || tier;
 }

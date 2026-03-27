@@ -238,8 +238,9 @@ def export_dataset(output_dir: str = "out/dataset"):
 def search_faculty(
     query: str,
     top_k: int = 5,
-    university: Optional[str] = None,
-    school: Optional[str] = None,
+    university: list[str] = typer.Option([], "--university"),
+    school: list[str] = typer.Option([], "--school"),
+    tier: list[str] = typer.Option([], "--tier"),
     require_admissions: bool = False,
     require_lab_url: bool = False,
     pretty: bool = False,
@@ -247,8 +248,9 @@ def search_faculty(
 ):
     _, _, _, _, retrieval, _ = bootstrap()
     filters = SearchFilters(
-        university=university,
-        school=school,
+        universities=university,
+        schools=school,
+        tiers=tier,
         require_admissions=require_admissions,
         require_lab_url=require_lab_url,
     )
@@ -260,13 +262,14 @@ def search_faculty(
 def answer(
     query: str,
     top_k: int = 5,
-    university: Optional[str] = None,
-    school: Optional[str] = None,
+    university: list[str] = typer.Option([], "--university"),
+    school: list[str] = typer.Option([], "--school"),
+    tier: list[str] = typer.Option([], "--tier"),
     pretty: bool = False,
     json_output: bool = typer.Option(False, "--json", help="Emit stable JSON output for agents and scripts."),
 ):
     _, _, _, _, retrieval, _ = bootstrap()
-    filters = SearchFilters(university=university, school=school)
+    filters = SearchFilters(universities=university, schools=school, tiers=tier)
     result = retrieval.answer(query=query, filters=filters, top_k=top_k)
     typer.echo(format_answer_result(result) if pretty else to_json(result) if json_output or not pretty else format_answer_result(result))
 

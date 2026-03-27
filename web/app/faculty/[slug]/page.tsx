@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { fetchFacultyDetail } from "../../../lib/api";
-import { highlightText, sectionTone, sourceKindLabel, sourceStatusLabel } from "../../../lib/presentation";
+import { highlightText, sectionTone, sourceKindLabel, sourceStatusLabel, tierLabel } from "../../../lib/presentation";
 
 function groupSections(sections: Array<{ section_type: string; title: string; content: string; source_url: string }>) {
   const preferredOrder = [
@@ -30,6 +30,9 @@ function backHref(searchParams: Record<string, string | string[] | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(searchParams)) {
     if (typeof value === "string" && value) params.set(key, value);
+    if (Array.isArray(value)) {
+      value.filter(Boolean).forEach((item) => params.append(key, item));
+    }
   }
   const query = params.toString();
   return query ? `/?${query}` : "/";
@@ -73,6 +76,15 @@ export default async function FacultyDetailPage({
               {detail.university} / {detail.school}
               {detail.title ? ` / ${detail.title}` : ""}
             </p>
+            {detail.tiers?.length ? (
+              <div className="tags">
+                {detail.tiers.map((tier) => (
+                  <span className="tag tag-tier" key={tier}>
+                    {tierLabel(tier)}
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
           <div className="hero-sidecard">
             <div className="hero-sidecard-label">快速判断</div>
@@ -99,6 +111,10 @@ export default async function FacultyDetailPage({
                 <div className="info-item">
                   <span className="info-label">学院</span>
                   <span>{detail.school}</span>
+                </div>
+                <div className="info-item">
+                  <span className="info-label">学校层级</span>
+                  <span>{detail.tiers?.length ? detail.tiers.map((tier) => tierLabel(tier)).join("、") : "未标注"}</span>
                 </div>
                 <div className="info-item">
                   <span className="info-label">职称</span>

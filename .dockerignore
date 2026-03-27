@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+.pytest_cache
+__pycache__
+*.pyc
+.DS_Store
+.env
+deploy/.env
+out
+tmp
+web/.next
+web/node_modules
+*.db
+*.sqlite
+*.sqlite3

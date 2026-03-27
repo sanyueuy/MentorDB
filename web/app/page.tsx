@@ -1,20 +1,29 @@
 import Link from "next/link";
 
 import { fetchFilters, fetchSearch, type SearchHit } from "../lib/api";
-import { highlightText, sectionTone, summarizeFilters } from "../lib/presentation";
+import { highlightText, sectionTone, summarizeFilters, tierLabel } from "../lib/presentation";
+
+type SearchParamValue = string | string[] | undefined;
+
+function normalizeArray(value: SearchParamValue): string[] {
+  if (!value) return [];
+  return (Array.isArray(value) ? value : [value]).filter(Boolean);
+}
 
 function buildSearchParams(input: {
   q?: string;
-  university?: string;
-  school?: string;
+  universities?: SearchParamValue;
+  schools?: SearchParamValue;
+  tiers?: SearchParamValue;
   require_admissions?: string;
   require_lab_url?: string;
   top_k?: string;
 }) {
   const params = new URLSearchParams();
   params.set("q", input.q || "我想找做机器人的老师");
-  if (input.university) params.set("university", input.university);
-  if (input.school) params.set("school", input.school);
+  for (const item of normalizeArray(input.universities)) params.append("universities", item);
+  for (const item of normalizeArray(input.schools)) params.append("schools", item);
+  for (const item of normalizeArray(input.tiers)) params.append("tiers", item);
   if (input.require_admissions === "on") params.set("require_admissions", "true");
   if (input.require_lab_url === "on") params.set("require_lab_url", "true");
   params.set("top_k", input.top_k || "10");
@@ -25,15 +34,22 @@ function buildFocusKey(hit: SearchHit) {
   return `${hit.faculty_slug}::${hit.source_url}`;
 }
 
-function buildFocusHref(search: URLSearchParams, focus: string) {
+function buildHref(search: URLSearchParams, updates: Record<string, string | string[] | null>) {
   const next = new URLSearchParams(search.toString());
-  next.set("focus", focus);
+  for (const [key, value] of Object.entries(updates)) {
+    next.delete(key);
+    if (value === null) continue;
+    if (Array.isArray(value)) {
+      value.forEach((item) => next.append(key, item));
+    } else {
+      next.set(key, value);
+    }
+  }
   return `/?${next.toString()}`;
 }
 
 function buildDetailHref(search: URLSearchParams, slug: string) {
-  const next = new URLSearchParams(search.toString());
-  return `/faculty/${slug}?${next.toString()}`;
+  return `/faculty/${slug}?${search.toString()}`;
 }
 
 export default async function Home({
@@ -41,26 +57,35 @@ export default async function Home({
 }: {
   searchParams: {
     q?: string;
-    university?: string;
-    school?: string;
+    universities?: string | string[];
+    schools?: string | string[];
+    tiers?: string | string[];
     require_admissions?: string;
     require_lab_url?: string;
     top_k?: string;
     focus?: string;
   };
 }) {
+  const selectedUniversities = normalizeArray(searchParams.universities);
+  const selectedSchools = normalizeArray(searchParams.schools);
+  const selectedTiers = normalizeArray(searchParams.tiers);
   const requestParams = buildSearchParams(searchParams);
   const [filtersMeta, data] = await Promise.all([fetchFilters(), fetchSearch(requestParams)]);
 
   const activeKey = searchParams.focus || (data.hits[0] ? buildFocusKey(data.hits[0]) : "");
   const active = data.hits.find((hit) => buildFocusKey(hit) === activeKey) || data.hits[0] || null;
   const filterSummary = summarizeFilters({
-    university: searchParams.university,
-    school: searchParams.school,
+    universities: selectedUniversities,
+    schools: selectedSchools,
+    tiers: selectedTiers,
     require_admissions: searchParams.require_admissions === "on",
     require_lab_url: searchParams.require_lab_url === "on",
     top_k: Number(searchParams.top_k || "10"),
   });
+
+  const visibleSchools = selectedUniversities.length
+    ? filtersMeta.schools.filter((item) => selectedUniversities.includes(item.university))
+    : filtersMeta.schools;
 
   return (
     <main className="page-shell">
@@ -68,15 +93,13 @@ export default async function Home({
         <section className="hero hero-grid">
           <div>
             <div className="eyebrow">MentorDB Search Desk</div>
-            <h1>自然语言搜导师，证据化做判断</h1>
-            <p>
-              用一句自然语言描述方向、招生偏好或背景要求，快速看到老师卡片、命中证据和原始来源。
-            </p>
+            <h1>多学校联合搜导师，结果带证据可追溯</h1>
+            <p>现在可以同时勾选多个学校、多个学院和学校层级标签，用一套工作台完成跨校联合检索。</p>
           </div>
           <div className="hero-note">
-            <div className="hero-note-label">当前数据库</div>
-            <div className="hero-note-value">浙江大学三学院深抓库</div>
-            <div className="hero-note-meta">控制、计算机、软件，共 435 位老师</div>
+            <div className="hero-note-label">产品版工作台</div>
+            <div className="hero-note-value">支持多校 / 多院 / 层级标签</div>
+            <div className="hero-note-meta">筛选语义：同类 OR，跨类 AND。适合普通用户直接在线使用。</div>
           </div>
         </section>
 
@@ -89,36 +112,67 @@ export default async function Home({
                 type="text"
                 name="q"
                 defaultValue={searchParams.q || "我想找做机器人的老师"}
-                placeholder="例如：明确写了研究生招生信息的老师"
+                placeholder="例如：我想找明确写了研究生招生信息的双一流老师"
               />
             </label>
           </div>
 
-          <div className="filters-grid">
-            <label className="field">
-              <span className="field-label">学校</span>
-              <select className="select-input" name="university" defaultValue={searchParams.university || ""}>
-                <option value="">全部学校</option>
-                {filtersMeta.universities.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
+          <div className="multi-filter-layout">
+            <section className="multi-filter-group">
+              <div className="field-label">学校标签</div>
+              <div className="chip-grid">
+                {filtersMeta.tiers.map((tier) => (
+                  <label className={`toggle-chip ${selectedTiers.includes(tier.key) ? "toggle-chip-active" : ""}`} key={tier.key}>
+                    <input type="checkbox" name="tiers" value={tier.key} defaultChecked={selectedTiers.includes(tier.key)} />
+                    <span>{tier.label}</span>
+                  </label>
                 ))}
-              </select>
-            </label>
+              </div>
+            </section>
 
-            <label className="field">
-              <span className="field-label">学院</span>
-              <select className="select-input" name="school" defaultValue={searchParams.school || ""}>
-                <option value="">全部学院</option>
-                {filtersMeta.schools.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
+            <section className="multi-filter-group">
+              <div className="field-label">学校多选</div>
+              <div className="chip-grid">
+                {filtersMeta.universities.map((university) => (
+                  <label
+                    className={`toggle-chip ${selectedUniversities.includes(university.name) ? "toggle-chip-active" : ""}`}
+                    key={university.name}
+                  >
+                    <input
+                      type="checkbox"
+                      name="universities"
+                      value={university.name}
+                      defaultChecked={selectedUniversities.includes(university.name)}
+                    />
+                    <span>{university.name}</span>
+                    {university.tiers.map((tier) => (
+                      <span className="tiny-tag" key={`${university.name}-${tier}`}>
+                        {tierLabel(tier)}
+                      </span>
+                    ))}
+                  </label>
                 ))}
-              </select>
-            </label>
+              </div>
+            </section>
 
+            <section className="multi-filter-group">
+              <div className="field-label">学院多选</div>
+              <div className="chip-grid">
+                {visibleSchools.map((school) => (
+                  <label
+                    className={`toggle-chip ${selectedSchools.includes(school.name) ? "toggle-chip-active" : ""}`}
+                    key={`${school.university}-${school.name}`}
+                  >
+                    <input type="checkbox" name="schools" value={school.name} defaultChecked={selectedSchools.includes(school.name)} />
+                    <span>{school.name}</span>
+                    <span className="tiny-tag">{school.university}</span>
+                  </label>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <div className="filters-grid compact-grid">
             <label className="field field-small">
               <span className="field-label">返回数量</span>
               <select className="select-input" name="top_k" defaultValue={searchParams.top_k || "10"}>
@@ -132,11 +186,11 @@ export default async function Home({
           </div>
 
           <div className="toggle-row">
-            <label className="toggle-chip">
+            <label className={`toggle-chip ${searchParams.require_admissions === "on" ? "toggle-chip-active" : ""}`}>
               <input type="checkbox" name="require_admissions" defaultChecked={searchParams.require_admissions === "on"} />
               <span>只看有招生说明</span>
             </label>
-            <label className="toggle-chip">
+            <label className={`toggle-chip ${searchParams.require_lab_url === "on" ? "toggle-chip-active" : ""}`}>
               <input type="checkbox" name="require_lab_url" defaultChecked={searchParams.require_lab_url === "on"} />
               <span>只看有实验室链接</span>
             </label>
@@ -171,7 +225,7 @@ export default async function Home({
                 const tone = sectionTone(hit.section_type);
                 const focusKey = buildFocusKey(hit);
                 return (
-                  <article className={`result-card tone-${tone}`} key={`${focusKey}`}>
+                  <article className={`result-card tone-${tone}`} key={focusKey}>
                     <div className="result-head">
                       <div>
                         <div className="eyebrow">{hit.section_label}</div>
@@ -185,9 +239,12 @@ export default async function Home({
                       {hit.faculty.title ? ` / ${hit.faculty.title}` : ""}
                     </div>
 
-                    <p className="snippet">{highlightText(hit.snippet, data.query)}</p>
-
                     <div className="tags">
+                      {(hit.faculty.tiers || []).map((tier) => (
+                        <span className="tag tag-tier" key={`${hit.faculty.slug}-${tier}`}>
+                          {tierLabel(tier)}
+                        </span>
+                      ))}
                       {(hit.faculty.research_keywords || []).slice(0, 5).map((keyword) => (
                         <span className="tag" key={keyword}>
                           {keyword}
@@ -195,18 +252,14 @@ export default async function Home({
                       ))}
                     </div>
 
+                    <p className="snippet">{highlightText(hit.snippet, data.query)}</p>
+
                     <div className="card-actions">
-                      <Link className="text-link" href={buildFocusHref(requestParams, focusKey)}>
+                      <Link className="text-link" href={buildHref(requestParams, { focus: buildFocusKey(hit) })}>
                         查看命中证据
                       </Link>
                       {hit.faculty.school ? (
-                        <Link
-                          className="chip-link"
-                          href={`/?${new URLSearchParams({
-                            ...Object.fromEntries(requestParams.entries()),
-                            school: hit.faculty.school,
-                          }).toString()}`}
-                        >
+                        <Link className="chip-link" href={buildHref(requestParams, { schools: [hit.faculty.school] })}>
                           收窄到 {hit.faculty.school}
                         </Link>
                       ) : null}
@@ -220,7 +273,7 @@ export default async function Home({
             ) : (
               <div className="empty-state">
                 <div className="empty-title">没有找到匹配结果</div>
-                <p>可以试试更宽松的关键词，或去掉“招生说明 / 实验室链接”筛选。</p>
+                <p>可以换更宽松的关键词，去掉部分学校层级筛选，或者缩小学院范围再试。</p>
               </div>
             )}
           </section>
@@ -239,6 +292,9 @@ export default async function Home({
                     <div>{active.faculty.university}</div>
                     <div>{active.faculty.school}</div>
                     {active.faculty.title ? <div>{active.faculty.title}</div> : null}
+                    {(active.faculty.tiers || []).length ? (
+                      <div>{(active.faculty.tiers || []).map((tier) => tierLabel(tier)).join(" / ")}</div>
+                    ) : null}
                   </div>
                 </div>
 

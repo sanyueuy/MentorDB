@@ -43,11 +43,11 @@ class MemoryFetcher:
         return PageFetcher._extract_html_metadata(html, base_url)[1]
 
 
-def seed_generic_profile(repository: Repository, settings):
+def seed_generic_profile(repository: Repository, settings, *, university: str = "测试大学", school: str = "自动化学院"):
     adapter = HeuristicDirectoryAdapter(
         HeuristicAdapterConfig(
-            university="测试大学",
-            school="自动化学院",
+            university=university,
+            school=school,
             listing_url="https://example.edu/faculty",
         )
     )
@@ -131,6 +131,62 @@ def test_api_search_and_detail(repository, settings, monkeypatch):
     assert search_response.json()["hits"][0]["section_label"]
     assert detail_response.status_code == 200
     assert detail_response.json()["external_pages"]
+
+
+def test_api_filter_metadata_includes_tiers(repository, settings, monkeypatch):
+    profile = seed_generic_profile(repository, settings)
+    from mentor_index.api import app as api_module
+
+    api_module.get_repository.cache_clear()
+    monkeypatch.setattr(api_module, "get_repository", lambda: repository)
+    client = TestClient(app)
+
+    response = client.get("/api/meta/filters")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["tiers"]
+    assert payload["universities"][0]["name"] == "测试大学"
+    assert payload["schools"][0]["university"] == "测试大学"
+
+
+def test_api_multi_filters_follow_or_and_semantics(repository, settings, monkeypatch):
+    seed_generic_profile(repository, settings, university="浙江大学", school="控制科学与工程学院")
+    seed_generic_profile(repository, settings, university="测试大学", school="自动化学院")
+    from mentor_index.api import app as api_module
+    from mentor_index.providers.embedding import build_embedding_provider
+    from mentor_index.providers.llm import build_llm_provider
+    from mentor_index.index.embeddings import EmbeddingIndexer
+    from mentor_index.retrieve.service import RetrievalService
+
+    profiles = repository.load_profiles()
+    EmbeddingIndexer(repository, build_embedding_provider(settings)).index_profiles(profiles)
+    api_module.get_repository.cache_clear()
+    api_module.get_retrieval.cache_clear()
+    monkeypatch.setattr(api_module, "get_repository", lambda: repository)
+    monkeypatch.setattr(
+        api_module,
+        "get_retrieval",
+        lambda: RetrievalService(repository, build_embedding_provider(settings), build_llm_provider(settings)),
+    )
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/search/faculty",
+        params=[
+            ("q", "机器人"),
+            ("universities", "浙江大学"),
+            ("universities", "测试大学"),
+            ("schools", "控制科学与工程学院"),
+            ("schools", "自动化学院"),
+            ("tiers", "985"),
+        ],
+    )
+
+    assert response.status_code == 200
+    hits = response.json()["hits"]
+    assert hits
+    assert all(hit["faculty"]["university"] == "浙江大学" for hit in hits)
 
 
 def test_profile_detail_hides_generic_navigation_sources(repository, settings):

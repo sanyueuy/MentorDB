@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, func, or_, select
 
 from mentor_index.core.models import EmbeddingChunk, FacultyProfile, RawPage, SearchFilters, SearchHit, SearchResult
+from mentor_index.core.university_metadata import metadata_for_university, tiers_for_university
 from mentor_index.core.utils import domain_of, slugify
 from mentor_index.db.models import (
     Base,
@@ -352,11 +353,14 @@ class Repository:
             rows = []
             for faculty, embedding in session.execute(stmt):
                 if filters:
-                    if filters.university:
-                        university = faculty.school.university.name
-                        if university != filters.university:
-                            continue
-                    if filters.school and faculty.school.name != filters.school:
+                    university = faculty.school.university.name
+                    school = faculty.school.name
+                    university_tiers = tiers_for_university(university)
+                    if filters.normalized_universities() and university not in filters.normalized_universities():
+                        continue
+                    if filters.normalized_schools() and school not in filters.normalized_schools():
+                        continue
+                    if filters.normalized_tiers() and not any(tier in university_tiers for tier in filters.normalized_tiers()):
                         continue
                     if filters.require_admissions:
                         has_admissions = any(section.section_type == "admissions" for section in faculty.sections)
@@ -373,8 +377,9 @@ class Repository:
                     {
                         "faculty_slug": faculty.slug,
                         "faculty_name": faculty.name,
-                        "school": faculty.school.name,
-                        "university": faculty.school.university.name,
+                        "school": school,
+                        "university": university,
+                        "tiers": university_tiers,
                         "section_type": embedding.section_type,
                         "content": embedding.content,
                         "embedding": embedding.embedding_json,
@@ -464,6 +469,7 @@ class Repository:
                     "title": faculty.title,
                     "school": faculty.school.name,
                     "university": faculty.school.university.name,
+                    "tiers": tiers_for_university(faculty.school.university.name),
                     "homepage_url": faculty.homepage_url,
                     "lab_url": faculty.lab_url,
                     "research_keywords": faculty.research_keywords,
@@ -499,6 +505,7 @@ class Repository:
                 "title": faculty.title,
                 "school": faculty.school.name,
                 "university": faculty.school.university.name,
+                "tiers": tiers_for_university(faculty.school.university.name),
                 "homepage_url": faculty.homepage_url,
                 "lab_url": faculty.lab_url,
                 "email": faculty.email,
@@ -537,8 +544,26 @@ class Repository:
             universities = session.scalars(select(UniversityModel).order_by(UniversityModel.name)).all()
             schools = session.scalars(select(SchoolModel).order_by(SchoolModel.name)).all()
             return {
-                "universities": [item.name for item in universities],
-                "schools": [item.name for item in schools],
+                "tiers": [
+                    {"key": "985", "label": "985"},
+                    {"key": "211", "label": "211"},
+                    {"key": "double_first_class", "label": "双一流"},
+                ],
+                "universities": [
+                    {
+                        "name": item.name,
+                        "tiers": tiers_for_university(item.name),
+                        "metadata": metadata_for_university(item.name),
+                    }
+                    for item in universities
+                ],
+                "schools": [
+                    {
+                        "name": item.name,
+                        "university": item.university.name,
+                    }
+                    for item in schools
+                ],
             }
 
     def load_external_source_queue(self, faculty_slug: str | None = None, limit: int = 20) -> list[dict]:
