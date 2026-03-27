@@ -125,6 +125,8 @@ def test_api_search_and_detail(repository, settings, monkeypatch):
 
     assert search_response.status_code == 200
     assert search_response.json()["hits"]
+    assert search_response.json()["cards_total"] == len(search_response.json()["hits"])
+    assert search_response.json()["hits"][0]["section_label"]
     assert detail_response.status_code == 200
     assert detail_response.json()["external_pages"]
 

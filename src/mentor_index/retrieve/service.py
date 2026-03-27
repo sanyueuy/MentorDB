@@ -62,12 +62,14 @@ class RetrievalService:
             enriched_hits.append(
                 {
                     **hit.model_dump(mode="json"),
+                    "section_label": self._section_label(hit.section_type),
                     "faculty": cards.get(hit.faculty_slug, {}),
                 }
             )
         return {
             "query": query,
             "filters": filters.model_dump(mode="json"),
+            "cards_total": len(enriched_hits),
             "hits": enriched_hits,
         }
 
@@ -106,3 +108,17 @@ class RetrievalService:
             bonus += 0.03
 
         return bonus
+
+    @staticmethod
+    def _section_label(section_type: str) -> str:
+        return {
+            "admissions": "招生说明",
+            "research": "研究方向",
+            "self_intro": "导师自述",
+            "mentoring": "培养与教学",
+            "achievements": "成果项目",
+            "basic": "基础信息",
+            "contact": "联系方式",
+            "source_note": "动态提示",
+            "other": "其他证据",
+        }.get(section_type, "证据")

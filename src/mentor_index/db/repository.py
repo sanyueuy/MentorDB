@@ -26,6 +26,18 @@ from mentor_index.db.models import (
 
 
 class Repository:
+    SECTION_PRIORITY = {
+        "basic": 0,
+        "admissions": 1,
+        "research": 2,
+        "self_intro": 3,
+        "mentoring": 4,
+        "achievements": 5,
+        "contact": 6,
+        "source_note": 7,
+        "other": 8,
+    }
+
     def __init__(self, database_url: str):
         self.database_url = database_url
         self.engine = build_engine(database_url)
@@ -397,7 +409,10 @@ class Repository:
                                 "content": section.content,
                                 "source_url": section.source_url,
                             }
-                            for section in sorted(faculty.sections, key=lambda item: (item.section_type, item.title))
+                            for section in sorted(
+                                faculty.sections,
+                                key=lambda item: (self.SECTION_PRIORITY.get(item.section_type, 99), item.title),
+                            )
                         ],
                         sources=[
                             {
@@ -488,7 +503,10 @@ class Repository:
                         "content": section.content,
                         "source_url": section.source_url,
                     }
-                    for section in sorted(faculty.sections, key=lambda item: (item.section_type, item.title))
+                    for section in sorted(
+                        faculty.sections,
+                        key=lambda item: (self.SECTION_PRIORITY.get(item.section_type, 99), item.title),
+                    )
                 ],
                 "sources": self._serialize_sources(faculty, pages_by_url),
                 "external_pages": external_pages,
