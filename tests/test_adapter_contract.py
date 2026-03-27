@@ -49,3 +49,44 @@ def test_zju_extract_tab_titles_supports_static_onclick_tabs():
     assert titles["-1"] == "个人简介"
     assert titles["983473"] == "教学与课程"
     assert titles["983476"] == "研究与成果"
+
+
+def test_zju_extract_person_base_info_supports_static_personal_bottom():
+    adapter = ZjuPersonSearchAdapter(SCHOOL_CONFIGS["zju_control_real"])
+    html = """
+    <html><body>
+      <div class="personal_bottom">
+        <ul>
+          <li class="email"><label>邮箱</label> fgaoaa@zju.edu.cn</li>
+          <li class="address"><label>地址</label> 303, 教十八，浙江大学玉泉校区</li>
+          <li class="yjfx">
+            <ul class="second_research">
+              <li><b>&middot;&nbsp;</b>空中机器人</li>
+              <li><b>&middot;&nbsp;</b>具身智能</li>
+            </ul>
+          </li>
+        </ul>
+      </div>
+    </body></html>
+    """
+
+    from mentor_index.core.models import FacultySeed, RawPage
+    from mentor_index.core.utils import sha256_text
+
+    page = RawPage(
+        url="https://person.zju.edu.cn/fgaoaa",
+        depth=0,
+        status_code=200,
+        content_type="text/html",
+        title="高飞-浙江大学个人主页",
+        text="",
+        raw_html=html,
+        links=[],
+        metadata={},
+        fingerprint=sha256_text(html),
+    )
+    info = adapter._extract_person_base_info(page, FacultySeed(university="浙江大学", school="控制科学与工程学院", url=page.url))
+
+    assert info["email"] == "fgaoaa@zju.edu.cn"
+    assert info["address"] == "303, 教十八，浙江大学玉泉校区"
+    assert info["research_keywords"] == ["空中机器人", "具身智能"]

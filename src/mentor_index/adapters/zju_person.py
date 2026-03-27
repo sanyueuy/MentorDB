@@ -453,6 +453,22 @@ class ZjuPersonSearchAdapter(FacultyAdapter):
             return None
         return data.get("data") or None
 
+    @staticmethod
+    def _extract_static_personal_field(soup: BeautifulSoup, label: str, selector: str) -> str | None:
+        node = soup.select_one(selector)
+        if node:
+            text = normalize_space(node.get_text(" "))
+            text = normalize_space(text.replace(label, "", 1))
+            if text:
+                return text
+        for item in soup.select(".personal_bottom li"):
+            text = normalize_space(item.get_text(" "))
+            if text.startswith(label):
+                value = normalize_space(text.replace(label, "", 1))
+                if value:
+                    return value
+        return None
+
     def _extract_person_base_info(self, homepage: RawPage, faculty_seed: FacultySeed) -> dict[str, Any]:
         soup = BeautifulSoup(homepage.raw_html or "", "html.parser")
         listing_entry = faculty_seed.metadata.get("listing_entry", {})
@@ -480,6 +496,12 @@ class ZjuPersonSearchAdapter(FacultyAdapter):
                 phone = value_text
             elif label_text == "地址":
                 address = value_text
+        if email is None:
+            email = self._extract_static_personal_field(soup, "邮箱", ".personal_bottom li.email")
+        if phone is None:
+            phone = self._extract_static_personal_field(soup, "电话", ".personal_bottom li.phone")
+        if address is None:
+            address = self._extract_static_personal_field(soup, "地址", ".personal_bottom li.address")
         research_keywords = [
             normalize_space(item.get_text(" ").replace("·", ""))
             for item in soup.select(".second_research li")
