@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 
 from mentor_index.core.models import EmbeddingChunk, FacultyProfile, RawPage, SearchFilters, SearchHit, SearchResult
 from mentor_index.core.utils import domain_of, slugify
@@ -33,6 +33,23 @@ class Repository:
 
     def init_db(self) -> None:
         Base.metadata.create_all(self.engine)
+
+    NOISE_SECTION_TITLES = {
+        "Related People",
+        "Abstract",
+        "Co-authors",
+        "Last updated",
+        "Cited by View all",
+        "引用次数 查看全部",
+        "合著作者",
+        "Similar content being viewed by others",
+        "Section snippets",
+        "References",
+        "Introduction",
+        "Related Links",
+        "Cited by",
+        "Related works",
+    }
 
     def create_crawl_run(self, adapter_name: str, scope: str, parameters: dict) -> int:
         with self.session_factory.begin() as session:
@@ -262,6 +279,47 @@ class Repository:
                         metadata_json=chunk.metadata,
                     )
                 )
+
+    def cleanup_noise(self) -> dict[str, int]:
+        with self.session_factory.begin() as session:
+            empty_or_loading = or_(
+                PageModel.text_content.like("%正在加载中%"),
+                func.trim(func.coalesce(PageModel.text_content, "")) == "",
+            )
+            bad_pages = session.scalars(select(PageModel).where(empty_or_loading)).all()
+            bad_page_urls = {page.url for page in bad_pages}
+            deleted_documents = sum(len(page.documents) for page in bad_pages)
+            deleted_links = sum(len(page.links) for page in bad_pages)
+            for page in bad_pages:
+                session.delete(page)
+
+            deleted_sources = 0
+            if bad_page_urls:
+                bad_sources = session.scalars(select(SourceModel).where(SourceModel.url.in_(bad_page_urls))).all()
+                deleted_sources += len(bad_sources)
+                for source in bad_sources:
+                    session.delete(source)
+
+            noisy_sections = session.scalars(
+                select(ProfileSectionModel).where(
+                    or_(
+                        ProfileSectionModel.title.in_(sorted(self.NOISE_SECTION_TITLES)),
+                        ProfileSectionModel.content.like("%正在加载中%"),
+                        func.trim(func.coalesce(ProfileSectionModel.content, "")) == "",
+                    )
+                )
+            ).all()
+            deleted_sections = len(noisy_sections)
+            for section in noisy_sections:
+                session.delete(section)
+
+            return {
+                "deleted_pages": len(bad_pages),
+                "deleted_links": deleted_links,
+                "deleted_documents": deleted_documents,
+                "deleted_sources": deleted_sources,
+                "deleted_sections": deleted_sections,
+            }
 
     def load_index_rows(self, filters: SearchFilters | None = None) -> list[dict]:
         with self.session_factory() as session:

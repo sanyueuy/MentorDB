@@ -104,6 +104,13 @@ def init_db():
     typer.echo(f"Database initialized: {settings.database_url}")
 
 
+@app.command("clean-db")
+def clean_db(pretty: bool = False):
+    _, repository, *_ = bootstrap(with_models=False)
+    payload = repository.cleanup_noise()
+    typer.echo(format_json_or_text(payload, pretty))
+
+
 @app.command("validate-adapter")
 def validate_adapter(adapter_name: str):
     settings = load_settings()
